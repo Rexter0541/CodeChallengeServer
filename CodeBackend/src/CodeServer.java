@@ -1,67 +1,163 @@
-import spark.Spark;
-import org.codehaus.janino.SimpleCompiler;
-import java.io.*;
+using UnityEngine;
+using UnityEngine.Networking;
+using TMPro;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine.UI;
 
-public class CodeServer {
-    public static void main(String[] args) {
-        Spark.port(8080);
+public class CodeChallengeNPC : MonoBehaviour
+{
+    [Header("UI References")]
+    public TMP_InputField playerCodeInput;
+    public TMP_Text challengeText;
+    public TMP_Text responseText;
+    public GameObject CodeChallengePanel;
+    public Button submitButton;
+    public Button cancelButton;
 
-        // ✅ Health check
-        Spark.get("/", (req, res) -> "Server is running!");
+    [Header("Settings")]
+    public string serverUrl = "https://codechallengeserver-dtim.onrender.com/run";
+    public GameObject gate;
 
-        // 🧠 Code execution route
-        Spark.post("/run", (req, res) -> {
-            res.type("text/plain");
+    private string currentTemplate;
+    private string correctAnswer;
 
-            // Get code from form field "code"
-            String code = req.queryParams("code");
-
-            if (code == null || code.isEmpty()) {
-                return "Error: No code received!";
-            }
-
-            try {
-                // Compile dynamically
-                SimpleCompiler compiler = new SimpleCompiler();
-                compiler.cook(code);
-
-                // Extract class name from the code
-                String className = extractClassName(code);
-                if (className == null) {
-                    return "Error: Could not find class name!";
-                }
-
-                // Load the class
-                Class<?> cls = compiler.getClassLoader().loadClass(className);
-
-                // Capture System.out
-                ByteArrayOutputStream output = new ByteArrayOutputStream();
-                PrintStream ps = new PrintStream(output);
-                PrintStream oldOut = System.out;
-                System.setOut(ps);
-
-                // Run main method
-                cls.getMethod("main", String[].class).invoke(null, (Object) new String[]{});
-
-                // Restore System.out
-                System.setOut(oldOut);
-
-                return output.toString().trim();
-            } catch (Exception e) {
-                return "Error: " + e.getMessage();
-            }
-        });
+    private void Start()
+    {
+        if (cancelButton != null)
+            cancelButton.onClick.AddListener(OnCancel);
     }
 
-    // ✅ Simple method to extract first class name from the code
-    private static String extractClassName(String code) {
-        code = code.replace("\n", " ").replace("\r", " "); // remove line breaks
-        String[] tokens = code.split("\\s+");
-        for (int i = 0; i < tokens.length - 1; i++) {
-            if (tokens[i].equals("class")) {
-                return tokens[i + 1];
+    public void OpenPanel()
+    {
+        GenerateRandomChallenge();
+
+        playerCodeInput.text = "";
+        responseText.text = "";
+        playerCodeInput.interactable = true;
+
+        if (CodeChallengePanel != null)
+            CodeChallengePanel.SetActive(true);
+
+        if (submitButton != null)
+            submitButton.interactable = true;
+    }
+
+    // 🧠 Generate a random challenge
+    void GenerateRandomChallenge()
+    {
+        int randomIndex = Random.Range(0, 4);
+        switch (randomIndex)
+        {
+            case 0:
+                currentTemplate = @"____ class Test {
+    public static void main(String[] args) {
+        System.out.println(""Hello, NPC!"");
+    }
+}";
+                correctAnswer = "public";
+                break;
+
+            case 1:
+                currentTemplate = @"public class ____ {
+    public static void main(String[] args) {
+        System.out.println(""Hello, NPC!"");
+    }
+}";
+                correctAnswer = "Test";
+                break;
+
+            case 2:
+                currentTemplate = @"public class Test {
+    ____ static void main(String[] args) {
+        System.out.println(""Hello, NPC!"");
+    }
+}";
+                correctAnswer = "public";
+                break;
+
+            case 3:
+                currentTemplate = @"public class Test {
+    public static void main(String[] args) {
+        System.out.println(""____, NPC!"");
+    }
+}";
+                correctAnswer = "Hello";
+                break;
+        }
+
+        challengeText.text = currentTemplate;
+    }
+
+    public void OnSubmitCode()
+    {
+        string userAnswer = playerCodeInput.text.Trim();
+
+        if (string.IsNullOrEmpty(userAnswer))
+        {
+            responseText.text = "⚠️ Please type your answer first!";
+            return;
+        }
+
+        // Replace the blank with player's answer
+        string completedCode = currentTemplate.Replace("____", userAnswer);
+
+        // Disable input during check
+        playerCodeInput.interactable = false;
+        if (submitButton != null)
+            submitButton.interactable = false;
+
+        responseText.text = "⏳ Checking your code...";
+        StartCoroutine(SendCodeToServer(completedCode));
+    }
+
+    IEnumerator SendCodeToServer(string code)
+    {
+        WWWForm form = new WWWForm();
+        form.AddField("code", code);
+
+        using (UnityWebRequest request = UnityWebRequest.Post(serverUrl, form))
+        {
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                responseText.text = "❌ Error: " + request.error;
+                EnableRetry();
+            }
+            else
+            {
+                string serverResponse = request.downloadHandler.text;
+                Debug.Log("Server response: " + serverResponse);
+
+                if (serverResponse.Contains("Hello, NPC!"))
+                {
+                    responseText.text = "✅ Correct! You may enter.";
+                    if (gate != null)
+                        gate.SetActive(false);
+
+                    yield return new WaitForSeconds(1f);
+                    CodeChallengePanel.SetActive(false);
+                }
+                else
+                {
+                    responseText.text = "❌ Incorrect. Try again!";
+                    EnableRetry();
+                }
             }
         }
-        return null; // no class found
+    }
+
+    private void EnableRetry()
+    {
+        playerCodeInput.text = "";
+        playerCodeInput.interactable = true;
+        if (submitButton != null)
+            submitButton.interactable = true;
+    }
+
+    public void OnCancel()
+    {
+        CodeChallengePanel.SetActive(false);
     }
 }
