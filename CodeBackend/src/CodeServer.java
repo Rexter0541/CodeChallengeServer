@@ -1,6 +1,7 @@
 import spark.Spark;
 import org.codehaus.janino.SimpleCompiler;
 import java.io.*;
+import java.lang.reflect.Method;
 
 public class CodeServer {
     public static void main(String[] args) {
@@ -21,20 +22,20 @@ public class CodeServer {
             }
 
             try {
-                // ✅ Fix: remove "public" before class to prevent Janino error
+                // ✅ Fix #1: Remove "public" before class to avoid Janino class access conflict
                 code = code.replace("public class", "class");
 
-                // Compile dynamically
+                // ✅ Compile dynamically
                 SimpleCompiler compiler = new SimpleCompiler();
                 compiler.cook(code);
 
-                // Extract class name from the code
+                // Extract class name
                 String className = extractClassName(code);
                 if (className == null) {
                     return "Error: Could not find class name!";
                 }
 
-                // Load the class
+                // Load compiled class
                 Class<?> cls = compiler.getClassLoader().loadClass(className);
 
                 // Capture System.out
@@ -43,8 +44,10 @@ public class CodeServer {
                 PrintStream oldOut = System.out;
                 System.setOut(ps);
 
-                // Run main method
-                cls.getMethod("main", String[].class).invoke(null, (Object) new String[]{});
+                // ✅ Fix #2: Access the main method safely
+                Method mainMethod = cls.getDeclaredMethod("main", String[].class);
+                mainMethod.setAccessible(true);
+                mainMethod.invoke(null, (Object) new String[]{});
 
                 // Restore System.out
                 System.setOut(oldOut);
@@ -56,7 +59,7 @@ public class CodeServer {
         });
     }
 
-    // ✅ Extract first class name from code
+    // ✅ Extracts first class name from code text
     private static String extractClassName(String code) {
         code = code.replace("\n", " ").replace("\r", " "); // remove line breaks
         String[] tokens = code.split("\\s+");
