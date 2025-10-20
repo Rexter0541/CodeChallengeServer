@@ -22,7 +22,7 @@ public class CodeServer {
                 return "Error: No code received!";
             }
 
-            // ✅ Expected outputs (same order as Unity)
+            // ✅ Expected outputs (must match Unity order)
             String[] expectedOutputs = new String[]{
                 "Hello, NPC!",
                 "Hello, NPC!",
@@ -37,9 +37,26 @@ public class CodeServer {
                 "6"
             };
 
+            // ✅ Basic structure validation rules
+            String[] requiredSnippets = new String[]{
+                "System.out.println(\"Hello, NPC!\")",
+                "class Test",
+                "static void main",
+                "Hello, NPC",
+                "x + y",
+                "toUpperCase",
+                "nums[1]",
+                "for(int i",
+                "if(isJavaFun)",
+                "\"Hello, \" + name",
+                "a * b"
+            };
+
             try {
+                // Safety fix for Janino
                 code = code.replace("public class", "class");
 
+                // ⚙️ Compile
                 SimpleCompiler compiler = new SimpleCompiler();
                 compiler.cook(code);
 
@@ -50,6 +67,7 @@ public class CodeServer {
 
                 Class<?> cls = compiler.getClassLoader().loadClass(className);
 
+                // Redirect stdout
                 ByteArrayOutputStream output = new ByteArrayOutputStream();
                 PrintStream ps = new PrintStream(output);
                 PrintStream oldOut = System.out;
@@ -60,15 +78,20 @@ public class CodeServer {
                 mainMethod.invoke(null, (Object) new String[]{});
 
                 System.setOut(oldOut);
-
                 String result = output.toString().trim();
 
-                // ✅ Compare output with expected
+                // 🧩 Challenge validation
                 if (challengeId >= 0 && challengeId < expectedOutputs.length) {
                     String expected = expectedOutputs[challengeId].trim();
+                    String mustContain = requiredSnippets[challengeId];
 
-                    if (result.equals(expected)) {
+                    boolean structureValid = code.contains(mustContain);
+                    boolean outputValid = result.equals(expected);
+
+                    if (structureValid && outputValid) {
                         return "CORRECT";
+                    } else if (!structureValid) {
+                        return "WRONG (Your code structure doesn't match the challenge!)";
                     } else {
                         return "WRONG (Expected: " + expected + ", Got: " + result + ")";
                     }
@@ -82,7 +105,7 @@ public class CodeServer {
         });
     }
 
-    // ✅ Extracts first class name from code text
+    // ✅ Extract class name for Janino
     private static String extractClassName(String code) {
         code = code.replace("\n", " ").replace("\r", " ");
         String[] tokens = code.split("\\s+");
