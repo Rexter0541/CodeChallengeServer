@@ -7,54 +7,34 @@ public class CodeServer {
     public static void main(String[] args) {
         Spark.port(8080);
 
-        // Health check
         Spark.get("/", (req, res) -> "Server is running!");
 
-        // Code execution route
         Spark.post("/run", (req, res) -> {
             res.type("text/plain");
-
             String code = req.queryParams("code");
-            String challengeId = req.queryParams("challenge_id"); // optional
-
-            if (code == null || code.isEmpty()) {
-                return "Error: No code received!";
-            }
+            if (code == null || code.isEmpty()) return "Error: No code received!";
 
             try {
-                // Clean up the code to avoid public class conflicts
-                code = code.replace("public class", "class");
-
-                // Compile dynamically
+                code = code.replace("public class", "class"); // Janino fix
                 SimpleCompiler compiler = new SimpleCompiler();
                 compiler.cook(code);
 
-                // Extract class name
                 String className = extractClassName(code);
-                if (className == null) {
-                    return "Error: Could not find class name!";
-                }
+                if (className == null) return "Error: Could not find class name!";
 
-                // Load compiled class
                 Class<?> cls = compiler.getClassLoader().loadClass(className);
 
-                // Capture System.out output
                 ByteArrayOutputStream output = new ByteArrayOutputStream();
                 PrintStream ps = new PrintStream(output);
                 PrintStream oldOut = System.out;
                 System.setOut(ps);
 
-                // Run main method
                 Method mainMethod = cls.getDeclaredMethod("main", String[].class);
                 mainMethod.setAccessible(true);
                 mainMethod.invoke(null, (Object) new String[]{});
 
-                // Restore System.out
                 System.setOut(oldOut);
-
-                // Return the exact output text (no auto "CORRECT"/"WRONG")
                 return output.toString().trim();
-
             } catch (Exception e) {
                 return "Error: " + e.getMessage();
             }
@@ -65,9 +45,7 @@ public class CodeServer {
         code = code.replace("\n", " ").replace("\r", " ");
         String[] tokens = code.split("\\s+");
         for (int i = 0; i < tokens.length - 1; i++) {
-            if (tokens[i].equals("class")) {
-                return tokens[i + 1];
-            }
+            if (tokens[i].equals("class")) return tokens[i + 1];
         }
         return null;
     }
