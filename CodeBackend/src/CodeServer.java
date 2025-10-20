@@ -2,30 +2,50 @@ import spark.Spark;
 import org.codehaus.janino.SimpleCompiler;
 import java.io.*;
 import java.lang.reflect.Method;
+import java.util.Map;
 
 public class CodeServer {
     public static void main(String[] args) {
-        // Set server port
         Spark.port(8080);
 
         // ✅ Health check
         Spark.get("/", (req, res) -> "Server is running!");
 
+        // Expected outputs for your 4 challenges
+        Map<Integer, String> expectedOutputs = Map.of(
+            0, "Hello, NPC!",
+            1, "Hello, NPC!",
+            2, "Hello, NPC!",
+            3, "Hello, NPC!"
+        );
+
         // 🧠 Code execution route
         Spark.post("/run", (req, res) -> {
             res.type("text/plain");
 
-            // Get code from form field "code"
             String code = req.queryParams("code");
-            if (code == null || code.isEmpty()) {
-                return "Error: No code received!";
+            String challengeIdStr = req.queryParams("challenge_id");
+
+            if (code == null || code.isEmpty() || challengeIdStr == null) {
+                return "Error: Missing code or challenge ID!";
+            }
+
+            int challengeId;
+            try {
+                challengeId = Integer.parseInt(challengeIdStr);
+            } catch (NumberFormatException e) {
+                return "Error: Invalid challenge ID!";
+            }
+
+            if (!expectedOutputs.containsKey(challengeId)) {
+                return "Error: Unknown challenge ID!";
             }
 
             try {
-                // ✅ Fix #1: Remove "public" before class to avoid Janino class access conflict
+                // Remove public class for Janino
                 code = code.replace("public class", "class");
 
-                // ✅ Compile dynamically
+                // Compile dynamically
                 SimpleCompiler compiler = new SimpleCompiler();
                 compiler.cook(code);
 
@@ -35,7 +55,6 @@ public class CodeServer {
                     return "Error: Could not find class name!";
                 }
 
-                // Load compiled class
                 Class<?> cls = compiler.getClassLoader().loadClass(className);
 
                 // Capture System.out
@@ -44,7 +63,7 @@ public class CodeServer {
                 PrintStream oldOut = System.out;
                 System.setOut(ps);
 
-                // ✅ Fix #2: Access the main method safely
+                // Run main
                 Method mainMethod = cls.getDeclaredMethod("main", String[].class);
                 mainMethod.setAccessible(true);
                 mainMethod.invoke(null, (Object) new String[]{});
@@ -52,7 +71,14 @@ public class CodeServer {
                 // Restore System.out
                 System.setOut(oldOut);
 
-                return output.toString().trim();
+                String result = output.toString().trim();
+
+                // ✅ Strict check
+                if (result.equals(expectedOutputs.get(challengeId))) {
+                    return "CORRECT";
+                } else {
+                    return "INCORRECT";
+                }
 
             } catch (Exception e) {
                 return "Error: " + e.getMessage();
@@ -60,15 +86,14 @@ public class CodeServer {
         });
     }
 
-    // ✅ Extracts first class name from code text
     private static String extractClassName(String code) {
-        code = code.replace("\n", " ").replace("\r", " "); // remove line breaks
+        code = code.replace("\n", " ").replace("\r", " ");
         String[] tokens = code.split("\\s+");
         for (int i = 0; i < tokens.length - 1; i++) {
             if (tokens[i].equals("class")) {
                 return tokens[i + 1];
             }
         }
-        return null; // no class found
+        return null;
     }
 }
